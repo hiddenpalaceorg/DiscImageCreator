@@ -201,9 +201,10 @@ BOOL ExecReadCDForC2(
 BOOL FlushDriveCache(
 	PEXT_ARG pExtArg,
 	PDEVICE pDevice,
-	INT nLBA
+	INT nLBA,
+	BOOL force
 ) {
-	if (nLBA < MAX_LBA_OF_CD && nLBA % pExtArg->uiCacheDelNum == 0) {
+	if (force || nLBA % pExtArg->uiCacheDelNum == 0) {
 		CDB::_READ12 cdb = {};
 		cdb.OperationCode = SCSIOP_READ12;
 		cdb.ForceUnitAccess = TRUE;
@@ -276,7 +277,7 @@ BOOL ProcessReadCD(
 		if (!IsValidProtectedSector(pDisc, nLBA, GetReadErrorFileIdx(pExtArg, pDisc, nLBA)) &&
 			!IsValidIntentionalC2error(pDisc, pDiscPerSector, nLBA, GetC2ErrorFileIdx(pExtArg, pDisc, nLBA)) &&
 			!pDiscPerSector->bLibCrypt && !pDiscPerSector->bSecuRom) {
-			FlushDriveCache(pExtArg, pDevice, nLBA);
+			FlushDriveCache(pExtArg, pDevice, nLBA, FALSE);
 //			SynchronizeCache(pExtArg, pDevice);
 			pDisc->SUB.nCorruptCrcH = 0;
 			pDisc->SUB.nCorruptCrcL = 0;
@@ -439,12 +440,12 @@ BOOL ReadCDForRereadingSectorType1(
 				}
 
 				if (bRet == RETURNED_NO_C2_ERROR_1ST) {
-					LONG lSeekMain = CD_RAW_SECTOR_SIZE * (LONG)nLBA - nStart - pDisc->MAIN.nCombinedOffset;
+					LONG lSeekMain = CD_RAW_SECTOR_SIZE * ((LONG)nLBA - nStart) - pDisc->MAIN.nCombinedOffset;
 					fseek(fpImg, lSeekMain, SEEK_SET);
 					// Write track to scrambled again
 					WriteMainChannel(pExecType, pExtArg, pDisc, pDiscPerSector->data.current, nLBA, fpImg);
 
-					LONG lSeekC2 = CD_RAW_READ_C2_294_SIZE * (LONG)nLBA - nStart/* - (pDisc->MAIN.nCombinedOffset / 8)*/;
+					LONG lSeekC2 = CD_RAW_READ_C2_294_SIZE * ((LONG)nLBA - nStart)/* - (pDisc->MAIN.nCombinedOffset / 8)*/;
 					fseek(fpC2, lSeekC2, SEEK_SET);
 					WriteC2(pExtArg, pDevice, pDiscPerSector, fpC2);
 
@@ -467,7 +468,7 @@ BOOL ReadCDForRereadingSectorType1(
 						OutputC2ErrorLog("bad\n");
 					}
 				}
-				if (!FlushDriveCache(pExtArg, pDevice, nLBA)) {
+				if (!FlushDriveCache(pExtArg, pDevice, nLBA, TRUE)) {
 					throw FALSE;
 				}
 			}
@@ -621,7 +622,7 @@ BOOL ReadCDForRereadingSectorType2(
 				}
 				OutputC2ErrorLog("\n");
 				idx++;
-				if (!FlushDriveCache(pExtArg, pDevice, nLBA)) {
+				if (!FlushDriveCache(pExtArg, pDevice, nLBA, TRUE)) {
 					throw FALSE;
 				}
 			}
@@ -1355,7 +1356,7 @@ BOOL ReadCDAll(
 								if (nRetryCnt++ == 0) {
 									OutputErrorString(
 										"\n" STR_LBA "Failed to reread because crc16 of subQ is 0. Read back 100 sector\n", nLBA, (UINT)nLBA);
-									FlushDriveCache(pExtArg, pDevice, nLBA);
+									FlushDriveCache(pExtArg, pDevice, nLBA, FALSE);
 									SetDiscSpeed(pExecType, pExtArg, pDevice, 24);
 									continue;
 								}
@@ -2281,7 +2282,7 @@ BOOL ReadCDPartial(
 				else {
 					if ((nRetryCnt <= 2 && pDisc->PROTECT.byExist == proring) ||
 						(nRetryCnt <= 10 && (pDisc->PROTECT.byExist == laserlock || pDisc->PROTECT.byExist == physicalErr))) {
-						FlushDriveCache(pExtArg, pDevice, nLBA - 1);
+						FlushDriveCache(pExtArg, pDevice, nLBA - 1, FALSE);
 						Sleep(1000);
 						OutputLog(standardError | fileMainError, "Retry %d/10", nRetryCnt);
 						nRetryCnt++;
